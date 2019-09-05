@@ -17,11 +17,13 @@ package partial
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 	"sync"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/google/go-containerregistry/pkg/v1/v1util"
+	"golang.org/x/sync/errgroup"
 )
 
 // UncompressedLayer represents the bare minimum interface a natively
@@ -107,6 +109,9 @@ func UncompressedToImage(uic UncompressedImageCore) (v1.Image, error) {
 // appropriate methods computed from the minimal core.
 type uncompressedImageExtender struct {
 	UncompressedImageCore
+
+	// this is used to cache compressedLayers if the layers ever get compressed, because compression can be expensive
+	compressedLayers []v1.Layer
 
 	lock     sync.Mutex
 	manifest *v1.Manifest
@@ -207,6 +212,53 @@ func (i *uncompressedImageExtender) Layers() ([]v1.Layer, error) {
 	return ls, nil
 }
 
+// CompressedLayers implements v1.Image
+// This function compresses layers in parallel, so it is fairly expensive computationally.
+func (i *uncompressedImageExtender) CompressedLayers() ([]v1.Layer, error) {
+	if i.compressedLayers != nil {
+		return i.compressedLayers, nil
+	}
+
+	diffIDs, err := DiffIDs(i)
+	if err != nil {
+		return nil, err
+	}
+
+	ls := make([]v1.Layer, len(diffIDs), len(diffIDs))
+
+	var g errgroup.Group
+	for idx, d := range diffIDs {
+		idx := idx
+		d := d
+
+		g.Go(func() error {
+			l, err := i.LayerByDiffID(d)
+			if err != nil {
+				return err
+			}
+
+			cl, err := newCompressedLayerFromUncompressedLayer(l)
+			if err != nil {
+				return err
+			}
+
+			ls[idx], err = CompressedToLayer(cl)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	i.compressedLayers = ls
+
+	return ls, nil
+}
+
 // LayerByDiffID implements v1.Image
 func (i *uncompressedImageExtender) LayerByDiffID(diffID v1.Hash) (v1.Layer, error) {
 	ul, err := i.UncompressedImageCore.LayerByDiffID(diffID)
@@ -223,4 +275,59 @@ func (i *uncompressedImageExtender) LayerByDigest(h v1.Hash) (v1.Layer, error) {
 		return nil, err
 	}
 	return i.LayerByDiffID(diffID)
+}
+
+// compressedLayerFromUncompressedLayer implements partial.CompressedLayer
+type compressedLayerFromUncompressedLayer struct {
+	digest    v1.Hash
+	contents  []byte
+	mediaType types.MediaType
+}
+
+func newCompressedLayerFromUncompressedLayer(ul UncompressedLayer) (*compressedLayerFromUncompressedLayer, error) {
+	mediaType, err := ul.MediaType()
+	if err != nil {
+		return nil, err
+	}
+	uncompressedReader, err := ul.Uncompressed()
+	if err != nil {
+		return nil, err
+	}
+	gzipReadCloser, err := v1util.GzipReadCloser(uncompressedReader)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO probably shouldnt cache the contents, should probably just re-gzip but aint nobody got time for that
+	buf := new(bytes.Buffer)
+	digest, _, err := v1.SHA256(io.TeeReader(gzipReadCloser, buf))
+	if err != nil {
+		return nil, err
+	}
+
+	return &compressedLayerFromUncompressedLayer{
+		mediaType: mediaType,
+		contents:  buf.Bytes(),
+		digest:    digest,
+	}, nil
+}
+
+// Digest implements partial.CompressedLayer
+func (clft *compressedLayerFromUncompressedLayer) Digest() (v1.Hash, error) {
+	return clft.digest, nil
+}
+
+// Compressed implements partial.CompressedLayer
+func (clft *compressedLayerFromUncompressedLayer) Compressed() (io.ReadCloser, error) {
+	return ioutil.NopCloser(bytes.NewReader(clft.contents)), nil
+}
+
+// MediaType implements partial.CompressedLayer
+func (clft *compressedLayerFromUncompressedLayer) MediaType() (types.MediaType, error) {
+	return clft.mediaType, nil
+}
+
+// Size implements partial.CompressedLayer
+func (clft *compressedLayerFromUncompressedLayer) Size() (int64, error) {
+	return int64(len(clft.contents)), nil
 }

@@ -242,6 +242,10 @@ func (i *image) Layers() ([]v1.Layer, error) {
 	return ls, nil
 }
 
+func (i *image) CompressedLayers() ([]v1.Layer, error) {
+	return nil, errors.New("CompressedLayers not implemented for mutate.image")
+}
+
 // ConfigName returns the hash of the image's config file.
 func (i *image) ConfigName() (v1.Hash, error) {
 	if err := i.compute(); err != nil {
