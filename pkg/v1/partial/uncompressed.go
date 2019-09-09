@@ -217,6 +217,7 @@ func (i *uncompressedImageExtender) Layers() ([]v1.Layer, error) {
 // This function compresses layers in parallel, so it is fairly expensive computationally.
 func (i *uncompressedImageExtender) CompressedLayers() ([]v1.Layer, error) {
 	if i.compressedLayers != nil {
+		log.Print("DEBUG-LINE: returning cached layers\n")
 		return i.compressedLayers, nil
 	}
 

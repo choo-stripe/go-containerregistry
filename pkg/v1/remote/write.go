@@ -78,6 +78,7 @@ func WriteMulti(refs []name.Reference, img v1.Image, options ...Option) error {
 			if err != nil {
 				return err
 			}
+			log.Print("DEBUG-LINE: made options\n")
 
 			var ls []v1.Layer
 			if o.pushCompressedLayers {
@@ -88,6 +89,7 @@ func WriteMulti(refs []name.Reference, img v1.Image, options ...Option) error {
 			if err != nil {
 				return err
 			}
+			log.Print("DEBUG-LINE: got layers\n")
 
 			scopes := scopesForUploadingImage(ref, ls)
 			tr, err := transport.New(ref.Context().Registry, o.auth, o.transport, scopes)
@@ -98,6 +100,8 @@ func WriteMulti(refs []name.Reference, img v1.Image, options ...Option) error {
 				ref:    ref,
 				client: &http.Client{Transport: tr},
 			}
+
+			log.Print("DEBUG-LINE: created writer\n")
 
 			// With all of the constituent elements uploaded, upload the manifest
 			// to commit the image.
@@ -448,10 +452,12 @@ func (w *writer) uploadOne(l v1.Layer) error {
 
 // commitImage does a PUT of the image's manifest.
 func (w *writer) commitImage(man manifest) error {
+	log.Print("DEBUG-LINE: commitImage\n")
 	raw, err := man.RawManifest()
 	if err != nil {
 		return err
 	}
+	log.Print("DEBUG-LINE: got manifest\n")
 	mt, err := man.MediaType()
 	if err != nil {
 		return err
@@ -480,6 +486,7 @@ func (w *writer) commitImage(man manifest) error {
 	if err != nil {
 		return err
 	}
+	log.Print("DEBUG-LINE: got digest\n")
 
 	// The image was successfully pushed!
 	logs.Progress.Printf("%v: digest: %v size: %d", w.ref, digest, len(raw))
