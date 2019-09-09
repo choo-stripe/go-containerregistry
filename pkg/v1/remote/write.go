@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -52,9 +53,12 @@ func WriteMulti(refs []name.Reference, img v1.Image, options ...Option) error {
 		dedupedRefs[ref.Context().Registry.Name()] = ref
 	}
 
+	log.Print("DEBUG-LINE: deduped regs\n")
+
 	var g errgroup.Group
 	for _, ref := range dedupedRefs {
 		ref := ref
+		log.Printf("DEBUG-LINE: ref: %s\n", ref.String())
 		g.Go(func() error {
 			return writeLayers(ref, img, options...)
 		})
@@ -63,6 +67,8 @@ func WriteMulti(refs []name.Reference, img v1.Image, options ...Option) error {
 	if err != nil {
 		return err
 	}
+
+	log.Print("DEBUG-LINE: wrote layers\n")
 
 	g = errgroup.Group{}
 	for _, ref := range refs {
@@ -99,10 +105,13 @@ func WriteMulti(refs []name.Reference, img v1.Image, options ...Option) error {
 			if err != nil {
 				return err
 			}
+			log.Print("DEBUG-LINE: committed one\n")
 			return nil
 		})
 	}
-	return g.Wait()
+	err = g.Wait()
+	log.Print("DEBUG-LINE: committed all\n")
+	return err
 }
 
 func writeLayers(ref name.Reference, img v1.Image, options ...Option) error {

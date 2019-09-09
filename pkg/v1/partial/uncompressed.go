@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"io"
 	"io/ioutil"
+	"log"
 	"sync"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -218,6 +219,8 @@ func (i *uncompressedImageExtender) CompressedLayers() ([]v1.Layer, error) {
 	if i.compressedLayers != nil {
 		return i.compressedLayers, nil
 	}
+
+	log.Print("DEBUG-LINE: actually compressing contents\n")
 
 	diffIDs, err := DiffIDs(i)
 	if err != nil {
