@@ -154,7 +154,13 @@ func (i *uncompressedImageExtender) Manifest() (*v1.Manifest, error) {
 		},
 	}
 
-	ls, err := i.Layers()
+	// TODO this shouldn't depend on layers being populated
+	var ls []v1.Layer
+	if i.compressedLayers != nil {
+		ls, err = i.CompressedLayers()
+	} else {
+		ls, err = i.Layers()
+	}
 	if err != nil {
 		return nil, err
 	}
