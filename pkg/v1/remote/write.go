@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"time"
@@ -340,6 +341,18 @@ func (w *writer) uploadOne(l v1.Layer) error {
 		}
 	}
 
+	// pull the layer into RAM before sending it
+	blob, err := l.Compressed()
+	if err != nil {
+		return err
+	}
+	blobContent, err := ioutil.ReadAll(blob)
+	if err != nil {
+		return err
+	}
+	blob.Close()
+	compressedContentReader := ioutil.NopCloser(bytes.NewBuffer(blobContent))
+
 	tryUpload := func() error {
 		location, mounted, err := w.initiateUpload(from, mount)
 		if err != nil {
@@ -353,11 +366,7 @@ func (w *writer) uploadOne(l v1.Layer) error {
 			return nil
 		}
 
-		blob, err := l.Compressed()
-		if err != nil {
-			return err
-		}
-		location, err = w.streamBlob(blob, location)
+		location, err = w.streamBlob(compressedContentReader, location)
 		if err != nil {
 			return err
 		}
