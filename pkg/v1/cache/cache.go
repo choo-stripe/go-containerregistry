@@ -40,13 +40,13 @@ var ErrNotFound = errors.New("layer was not found")
 // are read from the underlying Image.
 func Image(i v1.Image, c Cache) *CachedImage {
 	return &CachedImage{
-		image: i,
+		Image: i,
 		c:     c,
 	}
 }
 
 type CachedImage struct {
-	image     v1.Image
+	v1.Image
 	c         Cache
 	layerOnce sync.Once
 	layers    []v1.Layer
@@ -55,7 +55,7 @@ type CachedImage struct {
 func (i *CachedImage) Layers() ([]v1.Layer, error) {
 	var outerErr error
 	i.layerOnce.Do(func() {
-		ls, err := i.image.Layers()
+		ls, err := i.Image.Layers()
 		if err != nil {
 			outerErr = err
 			return
@@ -126,7 +126,7 @@ func (i *CachedImage) LayerByDigest(h v1.Hash) (v1.Layer, error) {
 	l, err := i.c.Get(h)
 	if err == ErrNotFound {
 		// Not cached, get it and write it.
-		l, err := i.image.LayerByDigest(h)
+		l, err := i.Image.LayerByDigest(h)
 		if err != nil {
 			return nil, err
 		}
@@ -139,7 +139,7 @@ func (i *CachedImage) LayerByDiffID(h v1.Hash) (v1.Layer, error) {
 	l, err := i.c.Get(h)
 	if err == ErrNotFound {
 		// Not cached, get it and write it.
-		l, err := i.image.LayerByDiffID(h)
+		l, err := i.Image.LayerByDiffID(h)
 		if err != nil {
 			return nil, err
 		}
