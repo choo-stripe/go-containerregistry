@@ -34,6 +34,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/cache"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/random"
@@ -1282,6 +1283,12 @@ func BenchmarkWrite(b *testing.B) {
 		img, err := random.Image(50*1024*1024, 10)
 		if err != nil {
 			b.Fatalf("random.Image(...): %v", err)
+		}
+
+		cachedImg := cache.Image(img, cache.NewInMemoryCache())
+		err = cachedImg.Populate()
+		if err != nil {
+			b.Fatalf("cachedImg.Populate(): %v", err)
 		}
 
 		tagStr := strings.TrimPrefix(s.URL+"/test/image:tag", "http://")

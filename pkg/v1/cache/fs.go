@@ -27,7 +27,7 @@ func (fs *fscache) Put(l v1.Layer) (v1.Layer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &layer{
+	return &fsLayer{
 		Layer:  l,
 		path:   fs.path,
 		digest: digest,
@@ -35,20 +35,20 @@ func (fs *fscache) Put(l v1.Layer) (v1.Layer, error) {
 	}, nil
 }
 
-type layer struct {
+type fsLayer struct {
 	v1.Layer
 	path           string
 	digest, diffID v1.Hash
 }
 
-func (l *layer) create(h v1.Hash) (io.WriteCloser, error) {
+func (l *fsLayer) create(h v1.Hash) (io.WriteCloser, error) {
 	if err := os.MkdirAll(l.path, 0700); err != nil {
 		return nil, err
 	}
 	return os.Create(filepath.Join(l.path, h.String()))
 }
 
-func (l *layer) Compressed() (io.ReadCloser, error) {
+func (l *fsLayer) Compressed() (io.ReadCloser, error) {
 	f, err := l.create(l.digest)
 	if err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (l *layer) Compressed() (io.ReadCloser, error) {
 	}, nil
 }
 
-func (l *layer) Uncompressed() (io.ReadCloser, error) {
+func (l *fsLayer) Uncompressed() (io.ReadCloser, error) {
 	f, err := l.create(l.diffID)
 	if err != nil {
 		return nil, err

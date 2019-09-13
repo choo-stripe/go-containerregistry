@@ -3,9 +3,11 @@ package cache
 
 import (
 	"errors"
+	"io/ioutil"
 
 	"github.com/google/go-containerregistry/pkg/logs"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"golang.org/x/sync/errgroup"
 )
 
 // Cache encapsulates methods to interact with cached layers.
@@ -35,20 +37,20 @@ var ErrNotFound = errors.New("layer was not found")
 // Image returns a new Image which wraps the given Image, whose layers will be
 // pulled from the Cache if they are found, and written to the Cache as they
 // are read from the underlying Image.
-func Image(i v1.Image, c Cache) v1.Image {
-	return &image{
-		Image: i,
+func Image(i v1.Image, c Cache) *CachedImage {
+	return &CachedImage{
+		image: i,
 		c:     c,
 	}
 }
 
-type image struct {
-	v1.Image
-	c Cache
+type CachedImage struct {
+	image v1.Image
+	c     Cache
 }
 
-func (i *image) Layers() ([]v1.Layer, error) {
-	ls, err := i.Image.Layers()
+func (i *CachedImage) Layers() ([]v1.Layer, error) {
+	ls, err := i.image.Layers()
 	if err != nil {
 		return nil, err
 	}
@@ -95,11 +97,11 @@ func (i *image) Layers() ([]v1.Layer, error) {
 	return out, nil
 }
 
-func (i *image) LayerByDigest(h v1.Hash) (v1.Layer, error) {
+func (i *CachedImage) LayerByDigest(h v1.Hash) (v1.Layer, error) {
 	l, err := i.c.Get(h)
 	if err == ErrNotFound {
 		// Not cached, get it and write it.
-		l, err := i.Image.LayerByDigest(h)
+		l, err := i.image.LayerByDigest(h)
 		if err != nil {
 			return nil, err
 		}
@@ -108,15 +110,50 @@ func (i *image) LayerByDigest(h v1.Hash) (v1.Layer, error) {
 	return l, err
 }
 
-func (i *image) LayerByDiffID(h v1.Hash) (v1.Layer, error) {
+func (i *CachedImage) LayerByDiffID(h v1.Hash) (v1.Layer, error) {
 	l, err := i.c.Get(h)
 	if err == ErrNotFound {
 		// Not cached, get it and write it.
-		l, err := i.Image.LayerByDiffID(h)
+		l, err := i.image.LayerByDiffID(h)
 		if err != nil {
 			return nil, err
 		}
 		return i.c.Put(l)
 	}
 	return l, err
+}
+
+func (i *CachedImage) Populate() error {
+	layers, err := i.Layers()
+	if err != nil {
+		return err
+	}
+
+	// read all layers in parallel
+	var g errgroup.Group
+	for _, l := range layers {
+		l := l
+		g.Go(func() error {
+			// put the layer in the cache so were populating the cached layer
+			l, err = i.c.Put(l)
+			if err != nil {
+				return err
+			}
+
+			compressedReader, err := l.Compressed()
+			if err != nil {
+				return err
+			}
+			defer compressedReader.Close()
+
+			_, err = ioutil.ReadAll(compressedReader)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	}
+
+	return g.Wait()
 }
