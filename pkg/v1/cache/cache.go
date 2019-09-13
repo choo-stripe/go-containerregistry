@@ -55,56 +55,66 @@ type CachedImage struct {
 func (i *CachedImage) Layers() ([]v1.Layer, error) {
 	var outerErr error
 	i.layerOnce.Do(func() {
-		i.layers = nil
 		ls, err := i.image.Layers()
 		if err != nil {
 			outerErr = err
 			return
 		}
 
-		for _, l := range ls {
-			// Check if this layer is present in the cache in compressed
-			// form.
-			digest, err := l.Digest()
-			if err != nil {
-				outerErr = err
-				return
-			}
-			if cl, err := i.c.Get(digest); err == nil {
-				// Layer found in the cache.
-				logs.Progress.Printf("Layer %s found (compressed) in cache", digest)
-				i.layers = append(i.layers, cl)
-				continue
-			} else if err != nil && err != ErrNotFound {
-				outerErr = err
-				return
-			}
+		i.layers = make([]v1.Layer, len(ls), len(ls))
+		var g errgroup.Group
 
-			// Check if this layer is present in the cache in
-			// uncompressed form.
-			diffID, err := l.DiffID()
-			if err != nil {
-				outerErr = err
-				return
-			}
-			if cl, err := i.c.Get(diffID); err == nil {
-				// Layer found in the cache.
-				logs.Progress.Printf("Layer %s found (uncompressed) in cache", diffID)
-				i.layers = append(i.layers, cl)
-			} else if err != nil && err != ErrNotFound {
-				outerErr = err
-				return
-			}
+		for idx, l := range ls {
+			idx := idx
+			l := l
 
-			// Not cached, fall through to real layer.
-			l, err = i.c.Put(l)
-			if err != nil {
-				outerErr = err
-				return
-			}
-			i.layers = append(i.layers, l)
+			g.Go(func() error {
+				// Check if this layer is present in the cache in compressed
+				// form.
+				digest, err := l.Digest()
+				if err != nil {
+					return err
+				}
+				if cl, err := i.c.Get(digest); err == nil {
+					// Layer found in the cache.
+					logs.Progress.Printf("Layer %s found (compressed) in cache", digest)
+					i.layers[idx] = cl
+					return nil
+				} else if err != nil && err != ErrNotFound {
+					return err
+				}
+
+				// Check if this layer is present in the cache in
+				// uncompressed form.
+				diffID, err := l.DiffID()
+				if err != nil {
+					return err
+				}
+				if cl, err := i.c.Get(diffID); err == nil {
+					// Layer found in the cache.
+					logs.Progress.Printf("Layer %s found (uncompressed) in cache", diffID)
+					i.layers[idx] = cl
+				} else if err != nil && err != ErrNotFound {
+					return err
+				}
+
+				// Not cached, fall through to real layer.
+				l, err = i.c.Put(l)
+				if err != nil {
+					return err
+				}
+				i.layers[idx] = l
+
+				return nil
+			})
+		}
+
+		err = g.Wait()
+		if err != nil {
+			outerErr = err
 		}
 	})
+
 	if outerErr != nil {
 		return nil, outerErr
 	}
